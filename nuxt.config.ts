@@ -1,5 +1,5 @@
 // https://nuxt.com/docs/api/configuration/nuxt-config
-import i18nLocales from './i18n.locales.json'
+import i18nLocales from './i18n/i18n.locales.json'
 
 export default defineNuxtConfig({
   compatibilityDate: '2025-07-15',

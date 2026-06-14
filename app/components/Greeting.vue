@@ -18,7 +18,7 @@ function returnNewKey() {
         "New translation key in function": "New translation key in function"
     },
     "sl": {
-        "Goodbye": "Goodbye in german",
+        "Goodbye": "Goodbye in slovenian",
         "New translation key in function": "TODO_TRANSLATION: New translation key in function"
     }
 }
