@@ -1,21 +1,22 @@
 {
-  "name": "i18nTest",
-  "type": "module",
-  "private": true,
-  "scripts": {
-    "build": "nuxt build",
-    "dev": "nuxt dev",
-    "generate": "nuxt generate",
-    "preview": "nuxt preview",
-    "postinstall": "nuxt prepare"
-  },
-  "dependencies": {
-    "@nuxtjs/i18n": "10.4.0",
-    "nuxt": "^4.4.8",
-    "vue": "^3.5.35",
-    "vue-router": "^5.1.0"
-  },
-  "devDependencies": {
+    "name": "i18nTest",
+    "type": "module",
+    "private": true,
+    "scripts": {
+        "build": "nuxt build",
+        "dev": "nuxt dev",
+        "generate": "nuxt generate",
+        "preview": "nuxt preview",
+        "i18n:extract": "node scripts/i18n-extract.mjs",
+        "postinstall": "nuxt prepare"
+    },
+    "dependencies": {
+        "@nuxtjs/i18n": "10.4.0",
+        "nuxt": "^4.4.8",
+        "vue": "^3.5.35",
+        "vue-router": "^5.1.0"
+    },
+    "devDependencies": {
         "@antfu/eslint-config": "^8.2.0",
         "eslint": "^10.2.1",
         "eslint-plugin-format": "^2.0.1",
