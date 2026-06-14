@@ -1,6 +1,11 @@
 <script setup lang="ts">
 const { locales, locale, setLocale } = useI18n()
 
+const selectedLocale = computed({
+  get: () => locale.value,
+  set: code => setLocale(code),
+})
+
 const currentLocale = computed(() =>
   locales.value.find(l => l.code === locale.value),
 )
@@ -8,15 +13,11 @@ const currentLocale = computed(() =>
 
 <template>
   <div>
-    <select
-      :value="locale"
-      @change="setLocale(($event.target as HTMLSelectElement).value as typeof locale)"
-    >
+    <select v-model="selectedLocale">
       <option
         v-for="l in locales"
         :key="l.code"
-        :value="l.code"
-      >
+        :value="l.code">
         {{ l.name }}
       </option>
     </select>
