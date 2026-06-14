@@ -8,6 +8,8 @@
         "generate": "nuxt generate",
         "preview": "nuxt preview",
         "i18n:extract": "node scripts/i18n-extract.mjs",
+        "i18n:export": "node scripts/i18n-export.mjs",
+        "i18n:import": "node scripts/i18n-import.mjs",
         "postinstall": "nuxt prepare"
     },
     "dependencies": {

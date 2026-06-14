@@ -15,7 +15,7 @@ const { t } = useI18n({ useScope: 'local' })
         "Hello": "Hello"
     },
     "sl": {
-        "Hello": "TODO_TRANSLATION: Hello"
+        "Hello": "Zdravo"
     }
 }
 </i18n>
