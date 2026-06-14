@@ -4,18 +4,18 @@ const { t } = useI18n({ useScope: 'local' })
 
 <template>
     <div>
-        {{ t('Hello') }}
-        <Greeting />
+        <SwitchLanguage />
+        {{ t('Hello world') }}
     </div>
 </template>
 
 <i18n lang="json">
 {
     "en": {
-        "Hello": "Hello"
+        "Hello world": "Hello world"
     },
     "sl": {
-        "Hello": "Zdravo"
+        "Hello world": "TODO_TRANSLATION: Hello world"
     }
 }
 </i18n>

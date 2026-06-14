@@ -33,7 +33,7 @@ const IGNORE_DIRS = new Set(['node_modules', '.nuxt', '.output', '.git', 'dist',
 
 // --- locales: single source of truth, shared with nuxt.config.ts ----------
 const { defaultLocale, locales } = JSON.parse(
-    readFileSync(join(ROOT, 'i18n.locales.json'), 'utf8'),
+    readFileSync(join(ROOT, '/i18n/i18n.locales.json'), 'utf8'),
 );
 const localeCodes = locales.map(l => l.code);
 
