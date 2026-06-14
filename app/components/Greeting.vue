@@ -13,13 +13,13 @@ function returnNewKey() {
 
 <i18n lang="json">
 {
-  "en": {
-    "Goodbye": "Goodbye",
-    "New translation key in function": "New translation key in function"
-  },
-  "sl": {
-    "Goodbye": "Goodbye in german",
-    "New translation key in function": "TODO_TRANSLATION: New translation key in function"
-  }
+    "en": {
+        "Goodbye": "Goodbye",
+        "New translation key in function": "New translation key in function"
+    },
+    "sl": {
+        "Goodbye": "Goodbye in german",
+        "New translation key in function": "TODO_TRANSLATION: New translation key in function"
+    }
 }
 </i18n>

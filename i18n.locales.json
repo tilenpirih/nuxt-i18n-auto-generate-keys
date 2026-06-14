@@ -1,7 +1,7 @@
 {
     "defaultLocale": "en",
     "locales": [
-        { "code": "en", "name": "English", "flag": "us" },
-        { "code": "sl", "name": "Slovenščina", "flag": "si" }
+        { "code": "en", "name": "English", "file": "en.json" },
+        { "code": "sl", "name": "Slovenščina", "file": "sl.json" }
     ]
 }

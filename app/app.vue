@@ -11,11 +11,11 @@ const { t } = useI18n({useScope: 'local'});
 
 <i18n lang="json">
 {
-  "en": {
-    "Hello": "Hello"
-  },
-  "sl": {
-    "Hello": "TODO_TRANSLATION: Hello"
-  }
+    "en": {
+        "Hello": "Hello"
+    },
+    "sl": {
+        "Hello": "TODO_TRANSLATION: Hello"
+    }
 }
 </i18n>

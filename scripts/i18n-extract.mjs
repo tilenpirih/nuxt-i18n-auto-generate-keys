@@ -1,26 +1,34 @@
 #!/usr/bin/env node
-// i18n-extract — per-component translation sync for @nuxtjs/i18n.
+// i18n-extract — translation key sync for @nuxtjs/i18n.
 //
-// For every .vue file in the project it:
-//   1. finds every local `t('key')` call (template + script),
-//   2. ensures the component has `const { t } = useI18n({ useScope: 'local' })`,
-//   3. rewrites its <i18n lang="json"> block so that:
-//        - the default locale value is the key text (or the existing value),
-//        - every other locale gets `TODO_TRANSLATION: <key>` until translated,
-//        - keys no longer used in the component are removed,
-//   4. removes the <i18n> block entirely if the component uses no keys.
+// Two homes for keys, decided by how/where you call the translator:
 //
-// The locale list comes from i18n.locales.json (shared with nuxt.config.ts),
-// so adding/removing a locale there flows into every component on the next run.
+//   • bare  t('key')  in a .vue file  → that component's <i18n> block
+//                                        (local scope, co-located).
+//   • $t('key')       in any file     → the shared public catalog,
+//   • bare  t('key')  in a .ts file   → the shared public catalog,
+//                                        i18n/locales/<locale>.json
 //
-// Limitations: keys must be string literals (no `t(variable)`), and <i18n>
-// blocks are managed as JSON (a `lang="yaml"` block would be rewritten as json).
+// Rule of thumb: `$t` is always global/public; bare `t` is local inside a
+// component (it owns a block) and global inside a .ts file (it can't own one).
+//
+// For every locale the default-locale value is the key text itself; every
+// other locale gets `TODO_TRANSLATION: <key>` until a human/AI fills it in.
+// Keys no longer referenced anywhere are pruned from both blocks and catalog.
+//
+// Locales come from i18n.locales.json (shared with nuxt.config.ts).
+//
+// Limitations: keys must be string literals (no `t(variable)`); blocks and
+// catalog files are managed as JSON.
 
-import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { extname, join, relative } from 'node:path';
 
 const ROOT = process.cwd();
+const SRC_DIRS = ['app']; // where component/composable/util/store code lives
+const LOCALES_DIR = join(ROOT, 'i18n', 'locales');
 const TODO_PREFIX = 'TODO_TRANSLATION: ';
+const INDENT = 4; // spaces, for both <i18n> blocks and catalog files
 const IGNORE_DIRS = new Set(['node_modules', '.nuxt', '.output', '.git', 'dist', '.data', '.cache']);
 
 // --- locales: single source of truth, shared with nuxt.config.ts ----------
@@ -30,24 +38,39 @@ const { defaultLocale, locales } = JSON.parse(
 const localeCodes = locales.map(l => l.code);
 
 // --- patterns -------------------------------------------------------------
-// Match a bare `t('...')` / `t("...")` / t(`...`) call, but NOT `$t(`,
-// `obj.t(`, or `foot(` etc. (no word char, `$` or `.` immediately before).
-const KEY_CALL = /(?<![\w$.])t\(\s*(['"`])((?:\\.|(?!\1).)*?)\1/g;
+// The captured key is always group 2 (group 1 is the opening quote).
+const BARE_T = /(?<![\w$.])t\(\s*(['"`])((?:\\.|(?!\1).)*?)\1/g; // t('...')
+const DOLLAR_T = /(?<![\w.])\$t\(\s*(['"`])((?:\\.|(?!\1).)*?)\1/g; // $t('...')
+const ANY_T = /(?<![\w.$])\$?t\(\s*(['"`])((?:\\.|(?!\1).)*?)\1/g; // t() or $t()
 const I18N_BLOCK = /<i18n\b[^>]*>[\s\S]*?<\/i18n>/i;
 const I18N_BLOCK_TRAILING = /\n*<i18n\b[^>]*>[\s\S]*?<\/i18n>\s*/i;
 // eslint-disable-next-line regexp/no-contradiction-with-assertion
 const SETUP_TAG = /<script\b[^>]*\bsetup\b[^>]*>/i;
 
-function extractKeys(source) {
+function extractKeys(source, regex) {
     const keys = new Set();
-    KEY_CALL.lastIndex = 0;
+    regex.lastIndex = 0;
     let m;
     // eslint-disable-next-line no-cond-assign
-    while ((m = KEY_CALL.exec(source)) !== null) keys.add(m[2]);
+    while ((m = regex.exec(source)) !== null) keys.add(m[2]);
     return keys;
 }
 
-function parseExistingMessages(content) {
+function valueFor(code, key, prevVal) {
+    if (prevVal != null && prevVal !== '') return prevVal; // keep existing translation
+    return code === defaultLocale ? key : TODO_PREFIX + key;
+}
+
+function readJson(file) {
+    try {
+        return JSON.parse(readFileSync(file, 'utf8'));
+    } catch {
+        return {};
+    }
+}
+
+// --- per-component <i18n> blocks (.vue) -----------------------------------
+function parseExistingBlock(content) {
     const block = content.match(I18N_BLOCK);
     if (!block) return {};
     const inner = block[0].replace(/^<i18n\b[^>]*>/i, '').replace(/<\/i18n>$/i, '');
@@ -58,25 +81,16 @@ function parseExistingMessages(content) {
     }
 }
 
-function buildMessages(keys, existing) {
+function buildBlock(keys, existing) {
     const sortedKeys = [...keys].sort();
-    const out = {};
+    const messages = {};
     for (const code of localeCodes) {
         const prev = existing[code] || {};
         const dict = {};
-        for (const key of sortedKeys) {
-            const prevVal = prev[key];
-            if (prevVal != null && prevVal !== '') {
-                dict[key] = prevVal; // keep existing translation
-            } else if (code === defaultLocale) {
-                dict[key] = key; // default locale value = the source text
-            } else {
-                dict[key] = TODO_PREFIX + key; // needs translating
-            }
-        }
-        out[code] = dict;
+        for (const key of sortedKeys) dict[key] = valueFor(code, key, prev[key]);
+        messages[code] = dict;
     }
-    return out;
+    return `<i18n lang="json">\n${JSON.stringify(messages, null, INDENT)}\n</i18n>\n`;
 }
 
 function ensureLocalScope(content) {
@@ -90,64 +104,103 @@ function ensureLocalScope(content) {
     return `<script setup lang="ts">\n${line}\n</script>\n\n${content}`;
 }
 
-function renderBlock(messages) {
-    return `<i18n lang="json">\n${JSON.stringify(messages, null, 2)}\n</i18n>\n`;
-}
-
-function processFile(file) {
+function processVueFile(file) {
     const original = readFileSync(file, 'utf8');
-    // Strip the existing block before scanning so translation *values* that
-    // happen to contain `t(` are never mistaken for key usages.
-    const keys = extractKeys(original.replace(new RegExp(I18N_BLOCK, 'gi'), ''));
-    const existing = parseExistingMessages(original);
+    // Strip the block first so translation *values* containing `t(` aren't
+    // mistaken for key usages.
+    const scan = original.replace(new RegExp(I18N_BLOCK, 'gi'), '');
+    const blockKeys = extractKeys(scan, BARE_T); // local → this file's block
+    const globalKeys = extractKeys(scan, DOLLAR_T); // $t → shared catalog
+    const existing = parseExistingBlock(original);
 
-    // Drop any existing block + trailing whitespace, then re-append a fresh
-    // one. This keeps a clean blank-line separator regardless of how the file
-    // looked before (avoids gluing the block onto </template>).
+    // Drop any existing block + trailing whitespace, then re-append fresh.
     let body = original.replace(I18N_BLOCK_TRAILING, '\n').replace(/\s+$/, '\n');
 
-    if (keys.size === 0) {
-        const changed = body !== original;
+    let changed;
+    if (blockKeys.size === 0) {
+        changed = body !== original;
         if (changed) writeFileSync(file, body);
-        return { keys: 0, changed, removed: changed };
+        return { blockKeys: 0, changed, removed: changed, globalKeys };
     }
 
     body = ensureLocalScope(body);
-    const block = renderBlock(buildMessages(keys, existing));
-    const content = `${body.replace(/\s*$/, '\n')}\n${block}`;
-
-    const changed = content !== original;
+    const content = `${body.replace(/\s*$/, '\n')}\n${buildBlock(blockKeys, existing)}`;
+    changed = content !== original;
     if (changed) writeFileSync(file, content);
-    return { keys: keys.size, changed };
+    return { blockKeys: blockKeys.size, changed, removed: false, globalKeys };
 }
 
-function walk(dir, acc = []) {
+// --- shared public catalog (i18n/locales/*.json) --------------------------
+function syncCatalog(globalKeys) {
+    mkdirSync(LOCALES_DIR, { recursive: true });
+    const sortedKeys = [...globalKeys].sort();
+    const results = [];
+    for (const code of localeCodes) {
+        const file = join(LOCALES_DIR, `${code}.json`);
+        const prev = readJson(file);
+        const dict = {};
+        for (const key of sortedKeys) dict[key] = valueFor(code, key, prev[key]);
+        const content = `${JSON.stringify(dict, null, INDENT)}\n`;
+        const before = existsSync(file) ? readFileSync(file, 'utf8') : null;
+        const changed = before !== content;
+        if (changed) writeFileSync(file, content);
+        results.push({ file, count: sortedKeys.length, changed });
+    }
+    return results;
+}
+
+// --- file discovery -------------------------------------------------------
+function walk(dir, acc) {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
         if (entry.isDirectory()) {
             if (!IGNORE_DIRS.has(entry.name) && !entry.name.startsWith('.'))
                 walk(join(dir, entry.name), acc);
-        } else if (extname(entry.name) === '.vue') {
-            acc.push(join(dir, entry.name));
+        } else {
+            const ext = extname(entry.name);
+            if (ext === '.vue') acc.vue.push(join(dir, entry.name));
+            else if (ext === '.ts') acc.ts.push(join(dir, entry.name));
         }
     }
     return acc;
 }
 
 // --- run ------------------------------------------------------------------
-const files = walk(ROOT).sort();
-let updated = 0;
-for (const file of files) {
-    const res = processFile(file);
+const found = { vue: [], ts: [] };
+for (const dir of SRC_DIRS) {
+    const abs = join(ROOT, dir);
+    if (existsSync(abs)) walk(abs, found);
+}
+found.vue.sort();
+found.ts.sort();
+
+const globalKeys = new Set();
+let changedFiles = 0;
+
+for (const file of found.vue) {
+    const res = processVueFile(file);
+    res.globalKeys.forEach(k => globalKeys.add(k));
     const rel = relative(ROOT, file);
     if (res.changed) {
-        updated++;
-        const tag = res.removed ? 'cleared' : 'updated';
-        console.log(`  ${tag.padEnd(7)} ${rel}  (${res.keys} key${res.keys === 1 ? '' : 's'})`);
+        changedFiles++;
+        console.log(`  ${(res.removed ? 'cleared' : 'updated').padEnd(8)} ${rel}  (block: ${res.blockKeys})`);
     } else {
-        console.log(`  ok      ${rel}  (${res.keys} key${res.keys === 1 ? '' : 's'})`);
+        console.log(`  ok       ${rel}  (block: ${res.blockKeys})`);
     }
 }
+
+for (const file of found.ts) {
+    const keys = extractKeys(readFileSync(file, 'utf8'), ANY_T);
+    keys.forEach(k => globalKeys.add(k));
+    console.log(`  scanned  ${relative(ROOT, file)}  (global: ${keys.size})`);
+}
+
+for (const res of syncCatalog(globalKeys)) {
+    const rel = relative(ROOT, res.file);
+    if (res.changed) changedFiles++;
+    console.log(`  ${(res.changed ? 'updated' : 'ok').padEnd(8)} ${rel}  (${res.count} key${res.count === 1 ? '' : 's'})`);
+}
+
 console.log(
-    `\nDone — ${updated}/${files.length} file(s) changed, `
-    + `locales: ${localeCodes.join(', ')} (default: ${defaultLocale})`,
+    `\nDone — ${changedFiles} file(s) changed. `
+    + `Catalog: ${globalKeys.size} public key(s) across ${localeCodes.join(', ')} (default: ${defaultLocale}).`,
 );

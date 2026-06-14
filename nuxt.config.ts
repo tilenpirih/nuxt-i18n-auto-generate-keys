@@ -6,15 +6,13 @@ export default defineNuxtConfig({
   devtools: { enabled: true },
   modules: ['@nuxtjs/i18n'],
   i18n: {
-    // Per-component translations only — keys live in each component's
-    // <i18n> block and are generated/synced by `pnpm run i18n:extract`.
-    // The locale list below is the single source of truth in
-    // i18n.locales.json (shared with the extract script).
+    // Hybrid translations, all generated/synced by `pnpm run i18n:extract`:
+    //   • .vue files keep per-component <i18n> blocks (local `t`)
+    //   • .ts files (composables/utils/stores) + any `$t` use the shared
+    //     public catalog in i18n/locales/*.json
+    // The locale list is the single source of truth in i18n.locales.json.
     defaultLocale: i18nLocales.defaultLocale,
     strategy: 'prefix_except_default',
     locales: i18nLocales.locales,
-    experimental: {
-      typedOptionsAndMessages: 'all',
-    },
   },
 })
