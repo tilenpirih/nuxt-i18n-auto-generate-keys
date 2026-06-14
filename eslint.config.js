@@ -4,6 +4,7 @@ const config = await antfu(
     {
         formatters: true,
         vue: true,
+        typescript: true,
     },
     {
         ignores: ['**/*.md'],
