@@ -1,9 +1,12 @@
 # Nuxt i18n — auto-generated keys
 
 A small workflow on top of [`@nuxtjs/i18n`](https://i18n.nuxtjs.org/) where you
-**never hand-maintain translation files**. You write `t('Sentence')` in your
-code, run one command, and every locale file is created and kept in sync for
-you — with untranslated strings flagged for an AI (or human) to fill in.
+**never hand-maintain translation files** and **never decide local vs global**.
+You write `t('Sentence')` everywhere, run one command, and every locale file is
+created and kept in sync for you — strings used in one place stay local to the
+component, strings used across many components are promoted to a shared public
+catalog automatically, and untranslated strings are flagged for an AI (or
+human) to fill in.
 
 ```vue
 <!-- write this -->
@@ -24,18 +27,20 @@ The locale list lives in one place — [`i18n/i18n.locales.json`](i18n/i18n.loca
 and is shared by both `nuxt.config.ts` and the scripts. Today that's `en`
 (default) and `sl`.
 
-`pnpm i18n:extract` scans `app/`, finds every translator call, and writes the
-keys to one of **two homes** depending on how you called it:
+**You just write `t('...')` everywhere — the script decides local vs global
+for you.** `pnpm i18n:extract` scans `app/`, finds every translator call, and
+routes each key to one of **two homes**:
 
-| You write | Where the file is | Key goes to |
-| --- | --- | --- |
-| `t('...')` in a **`.vue`** file | component-local | that component's own `<i18n>` block |
-| `$t('...')` **anywhere** | global / shared | the public catalog `i18n/locales/<locale>.json` |
-| `t('...')` in a **`.ts`** file | global / shared | the public catalog `i18n/locales/<locale>.json` |
+| Situation | Key goes to |
+| --- | --- |
+| `t('...')` used in **one** component | that component's own `<i18n>` block (local, co-located) |
+| `t('...')` shared across **N components** (default 3) | the public catalog `i18n/locales/<locale>.json` (global) — see [Auto-promotion](#auto-promotion-local--public-when-a-string-is-shared) |
+| `t('...')` in a **`.ts`** file (composable/util/store) | the public catalog (a `.ts` file can't own a block) |
 
-Rule of thumb: **`$t` is always global/public.** Bare `t` is local inside a
-`.vue` component (it owns an `<i18n>` block) and global inside a `.ts` file
-(composable/util/store — it can't own a block, so it goes to the catalog).
+Rule of thumb: **a string used in one place stays local; a string used in
+many places becomes public automatically.** You don't choose — and you never
+have to write `$t`. (`$t('...')` still works and is always global, but plain
+`t` is enough everywhere now.)
 
 For each key, the **default locale** (`en`) gets the key text itself as its
 value, and **every other locale** gets a `TODO_TRANSLATION: ` placeholder:
@@ -56,8 +61,79 @@ and the marker is gone.
 - **Existing translations are preserved** — only missing/empty values are filled.
 - **Unused keys are pruned** — remove a `t('...')` call, re-run, and the key
   disappears from every locale.
-- In `.vue` files, if you use `t(...)` without setting it up, the script
-  auto-injects `const { t } = useI18n({ useScope: 'local' })` for you.
+- In `.vue` files the script manages the `useI18n` setup line for you: a
+  component with a local block gets `const { t } = useI18n({ useScope: 'local' })`;
+  one whose keys are all public gets `const { t } = useI18n()` (global scope).
+  Your own custom `useI18n(...)` line is left untouched.
+
+## Auto-promotion & demotion: driven by usage count
+
+This is the heart of "you never decide local vs global." Every run counts, per
+key, **how many components use it** (via bare `t`), and that count decides
+where the key lives — **in both directions, without touching your source**:
+
+| Used in… | Lives in |
+| --- | --- |
+| **≥ N components** (default 3) | the public catalog (removed from local blocks) |
+| **< N components** | each using component's own `<i18n>` block (removed from the catalog) |
+
+So it's fully reversible:
+
+- `t('Save')` in **2** components → stays **local** in both.
+- Add a **3rd** → `Save` moves to `i18n/locales/*.json`, local copies removed.
+- **Comment one out** (`<!-- {{ t('Save') }} -->`) → back down to 2 → `Save`
+  is **demoted** back into the two components' local blocks.
+- Uncomment it → public again.
+
+Commented-out calls don't count (comments are stripped before scanning), and
+**translations follow the key whichever way it moves**, so nothing is lost on a
+promote → demote → promote round trip.
+
+Your code always just says `t('Save')`. At runtime a component-local `t`
+transparently falls back to the public catalog for any key not in its own
+block.
+
+**Same key, different meaning is safe — and the threshold counts only
+components that AGREE.** A key's public value is the most common **translated**
+value across its usages, and only the components sharing that value (plus
+untranslated ones, which haven't picked a meaning yet) count toward the
+threshold. A component that gives the key a *different translated* value does
+**not** count.
+
+That has two consequences:
+
+- If enough still agree, the key stays public and the odd component keeps a
+  local `<i18n>` copy that **overrides** the public value for itself. e.g.
+  `t('Close')` = "Zapri" in 3 components and "Blizu" in a 4th → "Zapri" public,
+  the 4th keeps local "Blizu".
+- If the disagreement drops the agreeing count below the threshold, the key is
+  **demoted entirely**. e.g. `Save` in 3 components, but you translate one to
+  "Shrani2" → only 2 agree on "Shrani" → `Save` leaves the public catalog and
+  becomes local in all three (each keeping its own value).
+
+(Untranslated `TODO_TRANSLATION` placeholders are "not a meaning yet", so a
+freshly-added duplicate never blocks promotion — and to keep a component's own
+meaning, just translate its local entry differently.)
+
+Configure it at the top of [`scripts/i18n-extract.mjs`](scripts/i18n-extract.mjs)
+(`const PROMOTE = { ... }`) or per run:
+
+```bash
+pnpm i18n:extract --threshold=5        # go public only at 5+ components (default 3)
+pnpm i18n:extract --no-promote         # never promote; bare-t keys stay local
+pnpm i18n:extract --require-translated # only promote once a key is translated
+```
+
+`--require-translated` is the cautious setting: a freshly-written `t('Close')`
+looks identical across components *because nobody has translated it yet*. With
+this flag, such keys only promote once every locale has a real value — giving
+you the chance to assign different meanings first.
+
+> **Heads-up on dev warnings.** When a component's local `t` falls back to the
+> public catalog, vue-i18n would normally log a "fall back to root" warning. The
+> script silences these on exactly the components that need it by injecting
+> `useI18n({ useScope: 'local', fallbackWarn: false, missingWarn: false })`.
+> (These warnings are dev-only and stripped from production builds regardless.)
 
 > **Keys must be string literals.** `t('Sentence')` works; `t(someVariable)`
 > can't be statically extracted.
@@ -122,8 +198,9 @@ Handy flags:
 
 ## Typical day-to-day
 
-1. Write `t('...')` / `$t('...')` wherever you need text.
-2. `pnpm i18n:extract` — keys appear in all locales, untranslated ones marked.
+1. Write `t('...')` wherever you need text — no need to decide local vs global.
+2. `pnpm i18n:extract` — keys appear in all locales (local or auto-promoted to
+   public when shared), untranslated ones marked.
 3. `pnpm i18n:export --untranslated` → translate (AI or human) → `pnpm i18n:import`.
 
 That's it — locale files are never edited by hand.
