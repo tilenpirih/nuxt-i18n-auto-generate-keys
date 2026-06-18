@@ -64,7 +64,12 @@ and the marker is gone.
 - In `.vue` files the script manages the `useI18n` setup line for you: a
   component with a local block gets `const { t } = useI18n({ useScope: 'local' })`;
   one whose keys are all public gets `const { t } = useI18n()` (global scope).
-  Your own custom `useI18n(...)` line is left untouched.
+  If you already have your own `useI18n(...)` call (e.g. for locale switching),
+  it's kept and the script just augments it: it adds `t` to the destructuring
+  when you start using `t(...)`, and — if the component has single-use keys
+  that should be local — adds `useScope: 'local'` so they can live in a
+  co-located `<i18n>` block. (`locale`/`locales`/`setLocale` keep working under
+  local scope; the local composer syncs its locale with the global one.)
 
 ## Auto-promotion & demotion: driven by usage count
 

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-const { t } = useI18n({ useScope: 'local' })
+const { t } = useI18n()
 
 </script>
 
@@ -12,14 +12,3 @@ const { t } = useI18n({ useScope: 'local' })
 <style scoped>
 
 </style>
-
-<i18n lang="json">
-{
-    "en": {
-        "Cancel": "Cancel"
-    },
-    "sl": {
-        "Cancel": "Prekliči2"
-    }
-}
-</i18n>

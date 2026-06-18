@@ -203,6 +203,31 @@ function buildBlock(keys, existing, seed) {
     return `<i18n lang="json">\n${JSON.stringify(messages, null, INDENT)}\n</i18n>\n`;
 }
 
+// When the component already has its OWN useI18n() call (e.g.
+// `const { locales, setLocale } = useI18n()`), don't add a second line — just
+// make sure `t` is in its destructuring so a new `t('...')` resolves.
+function ensureTDestructured(content) {
+    const re = /const\s*\{([^}]*)\}\s*=\s*useI18n\(/;
+    const m = content.match(re);
+    if (!m) return content; // not the `const { ... } = useI18n()` form — leave it
+    const vars = m[1].split(',').map(s => s.trim()).filter(Boolean);
+    if (vars.includes('t')) return content;
+    return content.replace(re, `const { t, ${vars.join(', ')} } = useI18n(`);
+}
+
+// Give the component's own useI18n() local scope so its single-use keys can
+// live in an <i18n> block. `locale`/`locales`/`setLocale` keep working (a local
+// composer syncs its locale with the global one). Adds the fallback-silencing
+// flags only when the component also resolves some keys against the catalog.
+function addLocalScope(content, fallback) {
+    const opts = fallback
+        ? 'useScope: \'local\', fallbackWarn: false, missingWarn: false'
+        : 'useScope: \'local\'';
+    if (/useI18n\(\s*\)/.test(content)) // useI18n()  →  useI18n({ <opts> })
+        return content.replace(/useI18n\(\s*\)/, `useI18n({ ${opts} })`);
+    return content.replace(/useI18n\(\s*\{/, `useI18n({ ${opts}, `); // prepend into existing opts
+}
+
 // Insert/replace/remove the managed useI18n line so `t` is always defined with
 // the right scope. `mode`:
 //   'local'    component owns an <i18n> block (with `fallback` true if some of
@@ -245,12 +270,21 @@ function readVueFile(file) {
     // Strip the block (so translation *values* containing `t(` aren't mistaken
     // for usages) and comments (so commented-out calls don't count).
     const scan = stripComments(original.replace(new RegExp(I18N_BLOCK, 'gi'), ''));
+    // A useI18n() call the script doesn't manage (its managed line is exactly
+    // `const { t } = useI18n(...)`). If the component brought its own — e.g. for
+    // locale switching — we keep it and only ensure `t` is destructured; its
+    // scope then decides where this component's keys live.
+    const managed = MANAGED_USEI18N.test(original);
+    const userUseI18n = !managed && /useI18n\s*\(/.test(scan);
+    const userScopeLocal = userUseI18n && /useI18n\(\s*\{[^}]*useScope:\s*'local'/.test(scan);
     return {
         file,
         original,
         bareKeys: extractKeys(scan, BARE_T), // candidates: local or auto-promoted
         dollarKeys: extractKeys(scan, DOLLAR_T), // $t → always global
         existing: parseExistingBlock(original),
+        userUseI18n,
+        userScopeLocal,
     };
 }
 
@@ -339,7 +373,7 @@ function decideGlobal(vueFiles, forcedGlobal, catalogDisk) {
 
 // --- pass 2: write each .vue file ------------------------------------------
 function writeVueFile(vf, globalKeys, globalValues, catalogDisk) {
-    const { file, original, existing, bareKeys } = vf;
+    const { file, original, existing, bareKeys, userUseI18n, userScopeLocal } = vf;
 
     // Split this file's bare-`t` keys into what stays local vs resolves global.
     const localKeys = new Set();
@@ -372,7 +406,18 @@ function writeVueFile(vf, globalKeys, globalValues, catalogDisk) {
 
     const promoted = bareKeys.size - localKeys.size;
     let content;
-    if (localKeys.size > 0) {
+    if (userUseI18n) {
+        // Component owns its useI18n() — keep it, just make sure `t` is
+        // destructured. If it has local (single-use) keys, give that call local
+        // scope so they can live in a co-located <i18n> block.
+        if (bareKeys.size > 0) body = ensureTDestructured(body);
+        if (localKeys.size > 0) {
+            if (!userScopeLocal) body = addLocalScope(body, usesGlobalFallback);
+            content = `${body.replace(/\s*$/, '\n')}\n${buildBlock(localKeys, existing, seed)}`;
+        } else {
+            content = body.replace(/\s+$/, '\n');
+        }
+    } else if (localKeys.size > 0) {
         body = manageScope(body, 'local', usesGlobalFallback);
         content = `${body.replace(/\s*$/, '\n')}\n${buildBlock(localKeys, existing, seed)}`;
     } else {
